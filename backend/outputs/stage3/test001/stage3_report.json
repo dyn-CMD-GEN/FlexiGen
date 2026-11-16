@@ -1,0 +1,9 @@
+{
+  "success": true,
+  "message": "Stage 3 (3D docking) is a placeholder. Integrate docking tool here.",
+  "n_candidates_scored": 7,
+  "note": "Scores are synthetic placeholders \u2014 not real docking results.",
+  "files": {
+    "docked_csv": "outputs\\stage3\\test001\\stage3_docked.csv"
+  }
+}

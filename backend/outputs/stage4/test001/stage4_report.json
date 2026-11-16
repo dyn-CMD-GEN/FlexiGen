@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "message": "Stage 4 (ADMET filtering) is a placeholder. Integrate ADMET tools here.",
+  "n_candidates": 7,
+  "ro5_passing": 7,
+  "note": "ADMET scores are synthetic placeholders.",
+  "files": {
+    "leads_csv": "outputs\\stage4\\test001\\stage4_leads.csv"
+  }
+}

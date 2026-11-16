@@ -1,0 +1,8 @@
+smiles,canonical_smiles,valid,MW,LogP,TPSA,HBD,HBA,QED,source,candidate_id
+C1CCCC1S,C1CCCC1S,True,,,,,,,,
+c1ccc(Cl)cc1S,c1ccc(Cl)cc1S,True,,,,,,,,
+NC(=O)Cl,NC(=O)Cl,True,,,,,,,,
+c1ccc(N)cc1N,c1ccc(N)cc1N,True,,,,,,,,
+c1ccc(N)cc1S,c1ccc(N)cc1S,True,,,,,,,,
+COc1ccc2cc1N(CCOC(=O)Nc1ccccc1)C2,COc1ccc2cc1N(CCOC(=O)Nc1ccccc1)C2,True,298.34,3.26,50.8,1,4,0.92,member2_handoff,M2_EXP_001
+CCOC(=O)C(C)CCCN1CCN(c2ccccc2)C=C1OC,CCOC(=O)C(C)CCCN1CCN(c2ccccc2)C=C1OC,True,332.44,3.23,42.01,0,5,0.684,member2_handoff,M2_EXP_002
