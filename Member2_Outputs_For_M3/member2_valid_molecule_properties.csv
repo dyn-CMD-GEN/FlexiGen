@@ -1,0 +1,3 @@
+conformer_id,sample_id,canonical_smiles,molecular_weight,LogP,TPSA,HBD,HBA,rotatable_bonds,rings,QED
+1,5,COc1ccc2cc1N(CCOC(=O)Nc1ccccc1)C2,298.34,3.26,50.8,1,4,5,3,0.92
+3,7,CCOC(=O)C(C)CCCN1CCN(c2ccccc2)C=C1OC,332.44,3.23,42.01,0,5,8,2,0.684

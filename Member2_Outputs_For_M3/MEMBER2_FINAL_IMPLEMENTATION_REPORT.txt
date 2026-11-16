@@ -1,0 +1,104 @@
+
+MEMBER-2 FINAL IMPLEMENTATION REPORT
+====================================
+
+Module:
+Pocket-Conditioned 2D Molecular Topology Generation
+
+1. INPUT
+--------
+Source: Member-1 dynamic PARP1 pocket representation
+Pocket conformers: 5
+Pocket tensor shape: (5, 95, 4)
+Pocket mask shape: (5, 95)
+
+2. TRAINING DATA
+----------------
+Training molecules: 25 unique
+Validation molecules: 7 unique
+Training examples: 125
+Validation examples: 35
+
+General molecular pretraining:
+ChEMBL-37-derived dataset
+
+Pocket-conditioned training:
+CrossDocked2020-derived PARP1-associated ligand poses
+paired with Member-1 pocket conformers.
+
+3. MODEL
+--------
+Architecture:
+- Molecular Transformer
+- Dynamic Pocket Encoder
+- Pocket cross-attention
+
+Total parameters: 883,793
+Trainable parameters during fine-tuning: 249,088
+
+Training device: CPU
+Best checkpoint epoch: 12
+Best validation loss: 1.10778
+Validation token accuracy: 62.53%
+
+4. GENERATION RESULTS
+---------------------
+Total generated molecules: 50
+RDKit-valid molecules: 2
+Invalid molecules: 48
+Validity rate: 4%
+Unique valid molecules: 2
+
+Both valid molecules passed the four Lipinski rules.
+
+5. POCKET CONDITIONING EVALUATION
+---------------------------------
+Predictions changed only slightly across the five
+pocket conformers.
+
+Conformer comparisons produced cosine similarities
+very close to 1.
+
+Meaningful pocket-specific or conformer-specific
+conditioning has NOT been demonstrated.
+
+6. M3 HANDOFF
+-------------
+Exploratory molecules exported: 2
+
+File:
+member2_exploratory_M3_handoff.csv
+
+Status:
+exploratory_unvalidated
+
+Biological activity confirmed: No
+
+7. LIMITATIONS
+--------------
+- Very small pocket-conditioned training dataset.
+- Only 2 out of 50 generated molecules were valid.
+- Pocket-specific conditioning remains unproven.
+- Lipinski compliance does not establish biological activity.
+- The generated molecules are not confirmed PARP1 inhibitors.
+- Further training, validation and experimental assessment
+  are required.
+
+8. OUTPUT FILES
+---------------
+member2_generation_validation_report.csv
+member2_valid_molecule_properties.csv
+member2_exploratory_M3_handoff.csv
+pocket_conditioned_training_history.csv
+../checkpoints/member2_pocket_conditioned_best.pt
+
+FINAL STATUS
+------------
+The Member-2 implementation pipeline has been executed.
+Exploratory molecular outputs have been generated and
+exported for downstream evaluation.
+
+The module is a preliminary research implementation,
+not a validated pocket-conditioned molecular generator.
+
+Report date: 2026-11-15
