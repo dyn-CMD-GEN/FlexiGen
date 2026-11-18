@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "platform": "OpenCL",
+  "initial_energy_kJ_mol": 22415312.867095947,
+  "final_energy_kJ_mol": 170689.11769104004,
+  "energy_change_kJ_mol": -22244623.749404907,
+  "final_ligand_rmsd_A": 2.275754469596375,
+  "final_max_force_kJ_mol_nm": 164906.96951153912,
+  "restraint_k": 1000.0,
+  "relaxed_pdb_path": "C:\\Users\\prash\\OneDrive\\Desktop\\FlexiGEN\\backend\\outputs\\stage4b\\8acc048b\\CID_003__conformer_1__sample1__P1\\relaxed_complex.pdb"
+}

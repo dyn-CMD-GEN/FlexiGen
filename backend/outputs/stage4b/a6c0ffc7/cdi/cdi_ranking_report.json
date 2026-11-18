@@ -1,0 +1,28 @@
+{
+  "success": true,
+  "has_docking": false,
+  "n_total": 15,
+  "n_top": 5,
+  "top_n_cutoff": 5,
+  "cdi_score_min": 0.40795,
+  "cdi_score_max": 0.65831,
+  "cdi_score_mean": 0.49611,
+  "vina_best": null,
+  "vina_mean": null,
+  "tier_counts": {
+    "Tier 1 \u2014 Top Lead": 3,
+    "Tier 2 \u2014 Promising": 6,
+    "Tier 3 \u2014 Low Priority": 6
+  },
+  "weights_used": {
+    "w_vina": 0.3,
+    "w_gnina": 0.25,
+    "w_rmsd": 0.15,
+    "w_energy": 0.15,
+    "w_qc": 0.1,
+    "w_lipo": 0.03,
+    "w_mw": 0.02
+  },
+  "output_csv": "C:\\Users\\prash\\OneDrive\\Desktop\\FlexiGEN\\backend\\outputs\\stage4b\\a6c0ffc7\\cdi\\cdi_ranked_candidates.csv",
+  "top_csv": "C:\\Users\\prash\\OneDrive\\Desktop\\FlexiGEN\\backend\\outputs\\stage4b\\a6c0ffc7\\cdi\\cdi_top_candidates.csv"
+}

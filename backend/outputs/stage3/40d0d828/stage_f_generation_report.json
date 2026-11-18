@@ -1,0 +1,13 @@
+{
+  "stage": "F_step2_exploratory_coordinate_generation",
+  "checkpoint_epoch": 35,
+  "best_validation_cfm_loss": 7.853378392803763,
+  "checkpoint_loaded_strictly": true,
+  "pocket_radius_A": 15.0,
+  "protein_conformers": 5,
+  "ligand_candidates": 7,
+  "generated_coordinate_sets": 35,
+  "successful": 35,
+  "ode_steps": 20,
+  "scientific_status": "exploratory_unvalidated"
+}

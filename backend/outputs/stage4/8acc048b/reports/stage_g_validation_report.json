@@ -1,0 +1,18 @@
+{
+  "stage": "G_post_generation_validation",
+  "original_sdf_count": 48,
+  "validated_count": 48,
+  "minimized_count": 48,
+  "sa_score_available": true,
+  "minimization_method": "MMFF94s preferred; UFF fallback; ligand-only",
+  "geometry_screen_pass": 0,
+  "geometry_screen_flag": 48,
+  "binding_pose_validation": "not established",
+  "biological_activity_validation": "not performed",
+  "notes": [
+    "Molecular descriptors are topology-derived and are invariant across generated poses.",
+    "Geometry thresholds are diagnostic screening flags, not universal validity criteria.",
+    "Force-field minimization excludes protein; can move ligand away from generated pose.",
+    "No docking, protein-aware minimization, or biological activity validation was performed."
+  ]
+}

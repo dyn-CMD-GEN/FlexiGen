@@ -1,0 +1,21 @@
+{
+  "n_pocket_residues": 25,
+  "n_features": 75,
+  "n_conformers": 5,
+  "tensor_shape": [
+    5,
+    75,
+    4
+  ],
+  "mask_shape": [
+    5,
+    75
+  ],
+  "feature_type_counts": {
+    "ARO": 17,
+    "HBD": 25,
+    "POS": 8,
+    "HBA": 17,
+    "HYD": 8
+  }
+}

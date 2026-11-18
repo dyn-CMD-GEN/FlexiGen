@@ -1,0 +1,44 @@
+CID_003__conformer_5__sample1__MMFF94s_minimized
+     RDKit          3D
+
+  6  5  0  0  0  0  0  0  0  0999 V2000
+  -79.7824   18.2230  -11.6128 N   0  0  0  0  0  0  0  0  0  0  0  0
+  -78.7162   18.8208  -11.0120 C   0  0  0  0  0  0  0  0  0  0  0  0
+  -78.0070   18.1797  -10.2449 O   0  0  0  0  0  0  0  0  0  0  0  0
+  -78.5314   20.4798  -11.4579 Cl  0  0  0  0  0  0  0  0  0  0  0  0
+  -79.9655   17.2517  -11.4088 H   0  0  0  0  0  0  0  0  0  0  0  0
+  -80.3750   18.7370  -12.2462 H   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0
+  2  3  2  0
+  2  4  1  0
+  1  5  1  0
+  1  6  1  0
+M  END
+>  <candidate_id>  (1) 
+CID_003
+
+>  <protein_conformer>  (1) 
+conformer_5.pdb
+
+>  <pocket_crop_radius_A>  (1) 
+15.0
+
+>  <coordinate_status>  (1) 
+exploratory_unvalidated
+
+>  <original_generated_sdf>  (1) 
+CID_003__conformer_5__sample1.sdf
+
+>  <minimization_force_field>  (1) 
+MMFF94s
+
+>  <minimization_converged>  (1) 
+True
+
+>  <minimization_energy_before>  (1) 
+3005675.9882
+
+>  <minimization_energy_after>  (1) 
+-47.0723
+
+$$$$

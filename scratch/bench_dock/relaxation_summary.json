@@ -1,0 +1,11 @@
+{
+  "success": true,
+  "platform": "OpenCL",
+  "initial_energy_kJ_mol": 4.37458484620884e+16,
+  "final_energy_kJ_mol": 8135230747.648193,
+  "energy_change_kJ_mol": -4.3745840326857656e+16,
+  "final_ligand_rmsd_A": 1.3867504882922472,
+  "final_max_force_kJ_mol_nm": 2491024505.1901817,
+  "restraint_k": 1000.0,
+  "relaxed_pdb_path": "scratch/bench_dock\\relaxed_complex.pdb"
+}

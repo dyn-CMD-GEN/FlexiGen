@@ -1,0 +1,21 @@
+ring_atoms,ring_size,max_deviation_A,rms_deviation_A,record_id
+"[1, 2, 3, 4, 5, 7]",6,0.3372,0.1982,CID__conformer_1__sample1
+"[1, 2, 3, 4, 5, 7]",6,0.4971,0.2708,CID__conformer_2__sample1
+"[1, 2, 3, 4, 5, 7]",6,0.2062,0.1666,CID__conformer_3__sample1
+"[1, 2, 3, 4, 5, 7]",6,0.6309,0.3123,CID__conformer_4__sample1
+"[1, 2, 3, 4, 5, 7]",6,0.216,0.1349,CID__conformer_5__sample1
+"[15, 16, 17, 18, 19, 20]",6,0.404,0.2682,M2_EXP_001__conformer_1__sample1
+"[2, 3, 4, 5, 6, 7]",6,0.2132,0.1152,M2_EXP_001__conformer_1__sample1
+"[15, 16, 17, 18, 19, 20]",6,0.3518,0.2132,M2_EXP_001__conformer_2__sample1
+"[2, 3, 4, 5, 6, 7]",6,0.4931,0.3183,M2_EXP_001__conformer_2__sample1
+"[15, 16, 17, 18, 19, 20]",6,0.6888,0.4668,M2_EXP_001__conformer_3__sample1
+"[2, 3, 4, 5, 6, 7]",6,0.5261,0.3698,M2_EXP_001__conformer_3__sample1
+"[15, 16, 17, 18, 19, 20]",6,0.7713,0.5339,M2_EXP_001__conformer_4__sample1
+"[2, 3, 4, 5, 6, 7]",6,0.3267,0.1989,M2_EXP_001__conformer_4__sample1
+"[15, 16, 17, 18, 19, 20]",6,0.4826,0.3173,M2_EXP_001__conformer_5__sample1
+"[2, 3, 4, 5, 6, 7]",6,0.449,0.2481,M2_EXP_001__conformer_5__sample1
+"[14, 15, 16, 17, 18, 19]",6,0.2327,0.1511,M2_EXP_002__conformer_1__sample1
+"[14, 15, 16, 17, 18, 19]",6,0.1449,0.0726,M2_EXP_002__conformer_2__sample1
+"[14, 15, 16, 17, 18, 19]",6,0.1794,0.1058,M2_EXP_002__conformer_3__sample1
+"[14, 15, 16, 17, 18, 19]",6,0.4412,0.2264,M2_EXP_002__conformer_4__sample1
+"[14, 15, 16, 17, 18, 19]",6,0.0771,0.0558,M2_EXP_002__conformer_5__sample1

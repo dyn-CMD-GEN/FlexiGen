@@ -1,0 +1,15 @@
+candidate_id,conformer_id,relaxed_pdb_path,gnina_CNNscore,gnina_CNNaffinity,vina_top_score
+CID__conformer_1__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\CID__conformer_1__sample1__P1\relaxed_complex.pdb,0.7211,5.615,-4.206
+CID__conformer_2__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\CID__conformer_2__sample1__P1\relaxed_complex.pdb,0.8455,6.102,-3.879
+CID__conformer_3__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\CID__conformer_3__sample1__P1\relaxed_complex.pdb,0.8808,6.315,-4.014
+CID__conformer_4__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\CID__conformer_4__sample1__P1\relaxed_complex.pdb,0.8249,6.04,-3.91
+M2_EXP_001__conformer_1__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_001__conformer_1__sample1__P1\relaxed_complex.pdb,0.7587,6.687,-7.643
+M2_EXP_001__conformer_2__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_001__conformer_2__sample1__P1\relaxed_complex.pdb,0.7851,6.837,-8.697
+M2_EXP_001__conformer_3__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_001__conformer_3__sample1__P1\relaxed_complex.pdb,0.8155,7.092,-6.387
+M2_EXP_001__conformer_4__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_001__conformer_4__sample1__P1\relaxed_complex.pdb,0.7275,6.619,-6.937
+M2_EXP_001__conformer_5__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_001__conformer_5__sample1__P1\relaxed_complex.pdb,0.7661,6.792,-7.012
+M2_EXP_002__conformer_1__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_002__conformer_1__sample1__P1\relaxed_complex.pdb,0.7408,6.808,-6.68
+M2_EXP_002__conformer_2__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_002__conformer_2__sample1__P1\relaxed_complex.pdb,0.7858,6.912,-8.395
+M2_EXP_002__conformer_3__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_002__conformer_3__sample1__P1\relaxed_complex.pdb,0.7773,6.891,-9.262
+M2_EXP_002__conformer_4__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_002__conformer_4__sample1__P1\relaxed_complex.pdb,0.7858,6.912,-7.807
+M2_EXP_002__conformer_5__sample1,P1,C:\Users\prash\OneDrive\Desktop\FlexiGEN\backend\outputs\stage4b\8a981d93\M2_EXP_002__conformer_5__sample1__P1\relaxed_complex.pdb,0.7408,6.808,-7.962

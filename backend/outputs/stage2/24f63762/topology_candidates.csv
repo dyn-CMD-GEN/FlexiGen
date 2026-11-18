@@ -1,0 +1,8 @@
+smiles,canonical_smiles,valid,MW,LogP,TPSA,HBD,HBA,QED,source,candidate_id
+NC(=O)O,NC(=O)O,True,61.04,-0.377,63.32,2,1,0.401,tensor_generated,CID_001
+OCOCC,CCOCO,True,76.09,-0.027,29.46,1,2,0.468,tensor_generated,CID_002
+c1ccncc1NCC,CCNc1cccnc1,True,122.17,1.513,24.92,1,2,0.643,tensor_generated,CID_003
+C1CCCC1S,SC1CCCC1,True,102.2,1.859,0.0,1,1,0.443,tensor_generated,CID_004
+NC(=O)Cl,NC(=O)Cl,True,79.49,0.304,43.09,1,1,0.329,tensor_generated,CID_005
+COc1ccc2cc1N(CCOC(=O)Nc1ccccc1)C2,COc1ccc2cc1N(CCOC(=O)Nc1ccccc1)C2,True,298.34,3.26,50.8,1,4,0.92,member2_handoff,M2_EXP_001
+CCOC(=O)C(C)CCCN1CCN(c2ccccc2)C=C1OC,CCOC(=O)C(C)CCCN1CCN(c2ccccc2)C=C1OC,True,332.44,3.23,42.01,0,5,0.684,member2_handoff,M2_EXP_002

@@ -1,0 +1,27 @@
+CID_003__conformer_1__sample1
+     RDKit          3D
+
+  5  4  0  0  0  0  0  0  0  0999 V2000
+   17.0090  -14.5361   10.6485 C   0  0  0  0  0  0  0  0  0  0  0  0
+   17.4467  -17.6504    9.0699 C   0  0  0  0  0  0  0  0  0  0  0  0
+   16.4954  -16.0856   14.8008 N   0  0  0  0  0  0  0  0  0  0  0  0
+   16.2012  -16.7404   12.5280 C   0  0  0  0  0  0  0  0  0  0  0  0
+   16.8239  -14.6450   15.2727 O   0  0  0  0  0  0  0  0  0  0  0  0
+  1  2  1  0
+  2  3  1  0
+  3  4  1  0
+  4  5  1  0
+M  END
+>  <candidate_id>  (1) 
+CID_003
+
+>  <protein_conformer>  (1) 
+conformer_1.pdb
+
+>  <pocket_crop_radius_A>  (1) 
+15.0
+
+>  <coordinate_status>  (1) 
+exploratory_unvalidated
+
+$$$$

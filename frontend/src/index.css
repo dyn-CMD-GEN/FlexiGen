@@ -1,0 +1,56 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    background-color: #080D19;
+    color: #F1F5F9;
+    font-family: 'Inter', sans-serif;
+  }
+  
+  h1, h2, h3, h4, h5, h6 {
+    font-family: 'Space Grotesk', sans-serif;
+    letter-spacing: -0.02em;
+  }
+  
+  code, pre, .font-mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+}
+
+/* Custom sci-fi biotech scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #080D19;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #1C2940;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #22D3EE;
+}
+
+/* Glassmorphism surfaces */
+.glass-panel {
+  background: rgba(17, 26, 43, 0.75);
+  backdrop-filter: blur(12px);
+  border: 1px solid rgba(38, 53, 75, 0.8);
+}
+
+.glass-card {
+  background: #111A2B;
+  border: 1px solid #26354B;
+  transition: all 0.2s ease-in-out;
+}
+
+.glass-card:hover {
+  border-color: #385175;
+}

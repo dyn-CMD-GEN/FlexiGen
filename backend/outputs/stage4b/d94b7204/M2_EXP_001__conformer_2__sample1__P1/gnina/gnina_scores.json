@@ -1,0 +1,10 @@
+{
+  "success": true,
+  "gnina_found": true,
+  "CNNscore": 0.7685,
+  "CNNaffinity": 6.71,
+  "vina_score": -7.1,
+  "gnina_out_sdf": "C:\\Users\\prash\\OneDrive\\Desktop\\FlexiGEN\\backend\\outputs\\stage4b\\d94b7204\\M2_EXP_001__conformer_2__sample1__P1\\gnina\\gnina_out.sdf",
+  "returncode": 0,
+  "stdout": "=============================================================\n       GNINA Deep Learning Rescoring Engine v1.3\n=============================================================\nReceptor: C:\\Users\\prash\\OneDrive\\Desktop\\FlexiGEN\\backend\\outputs\\stage4b\\d94b7204\\receptor\\receptor_clean.pdb\nLigand:   C:\\Users\\prash\\OneDrive\\Desktop\\FlexiGEN\\backend\\outputs\\stage4b\\d94b7204\\M2_EXP_001__conformer_2__sample1__P1\\docking\\docked_pose.sdf\nCNN Model: default (rescore mode)\n-------------------------------------------------------------\nCNNscore     0.7685\nCNNaffinity  6.7100\nvina_score   -7.09\n-------------------------------------------------------------\n   mode |   affinity |     rmsd | CNNscore | CNNaffinity\n        | (kcal/mol) |  l.b. u.b|          |            \n      1       -7.1      0.00   0.00     0.768        6.71\n"
+}

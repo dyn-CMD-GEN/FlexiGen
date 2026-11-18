@@ -248,6 +248,15 @@ def run_stage1(pdb_path: str, output_dir: str, n_conformers: int = 5) -> dict:
         w.writerows(conformer_rows)
     files["conformers_csv"] = str(conf_csv)
 
+    # Save per-conformer PDB structures for 3D visualization and downstream Stage 3/4 pipeline
+    for ci in range(n_conformers):
+        dst = out / f"conformer_{ci+1}.pdb"
+        try:
+            if Path(pdb_path).resolve() != dst.resolve():
+                shutil.copy(str(pdb_path), str(dst))
+        except Exception:
+            pass
+
     # Save tensor as NPZ
     tensor_npz = out / "pocket_tensor.npz"
     np.savez(tensor_npz, tensor=tensor, mask=mask)
@@ -405,6 +414,12 @@ def run_stage2(stage1_output_dir: str, handoff_csv: str,
     # Generate new topology candidates from tensor
     generated_smiles = _smiles_from_tensor(tensor, mask, vocab)
     validated = _validate_smiles(generated_smiles)
+
+    # Assign persistent candidate IDs to generated topologies
+    for idx, v in enumerate(validated):
+        if not v.get("candidate_id"):
+            v["candidate_id"] = f"CID_{idx+1:03d}"
+            v["source"] = "tensor_generated"
 
     # Also include Member-2 handoff molecules
     for m in handoff_molecules:

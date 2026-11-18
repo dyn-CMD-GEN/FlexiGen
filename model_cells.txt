@@ -1,0 +1,653 @@
+﻿=== CELL 8 ===
+# F2-0 ù Imports and reproducibility
+import os, json, math, random, zipfile, warnings
+from pathlib import Path
+import numpy as np
+import pandas as pd
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from IPython.display import display
+from Bio.PDB import PDBParser, is_aa
+from rdkit import Chem
+from rdkit.Chem import QED, Crippen, Descriptors, Lipinski, rdMolDescriptors
+try:
+    from rdkit.Contrib.SA_Score import sascorer
+except Exception as exc:
+    raise ImportError("RDKit Contrib SA_Score is required. Install rdkit-pypi/conda rdkit with Contrib support.") from exc
+
+SEED = 2026
+random.seed(SEED); np.random.seed(SEED); torch.manual_seed(SEED)
+if torch.cuda.is_available(): torch.cuda.manual_seed_all(SEED)
+DEVICE = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+print("PyTorch:", torch.__version__)
+print("Device:", DEVICE)
+if torch.cuda.is_available(): print("GPU:", torch.cuda.get_device_name(0))
+
+=== CELL 9 ===
+from google.colab import drive
+drive.mount('/content/drive')
+
+DRIVE = Path('/content/drive/MyDrive')
+STAGE_A_DIR = DRIVE / 'StageA_CrossDocked_5000_v1'
+AUDIT_DIR = STAGE_A_DIR / 'stage_f_general_inference' / 'input_audit'
+MEM1_DIR = AUDIT_DIR / 'member1'
+MEM2_DIR = AUDIT_DIR / 'member2'
+CHECKPOINT_PATH = STAGE_A_DIR / 'stage_d_flow_matching' / 'stage_d_best.pt'
+PRIOR_PATH = STAGE_A_DIR / 'stage_e_generation_evaluation' / 'stage_e_initial_prior_stats.json'
+STATS_PATH = STAGE_A_DIR / 'property_normalization_stats.json'
+OUTPUT_DIR = STAGE_A_DIR / 'stage_f_general_inference' / 'generated_coordinates'
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+required = [STAGE_A_DIR, AUDIT_DIR, MEM1_DIR, MEM2_DIR, CHECKPOINT_PATH, PRIOR_PATH, STATS_PATH]
+missing = [str(p) for p in required if not p.exists()]
+if missing:
+    raise FileNotFoundError('Missing required paths. Run Stage F Step 1 first and verify Drive paths:\n' + '\n'.join(missing))
+
+pdb_files = sorted(MEM1_DIR.rglob('conformer_*.pdb'))
+pharm_files = list(MEM1_DIR.rglob('pocket_1_pharmacophore*.npy'))
+mask_files = list(MEM1_DIR.rglob('pocket_1_mask*.npy'))
+handoff_files = list(MEM2_DIR.rglob('member2_exploratory_M3_handoff.csv'))
+if len(pdb_files) != 5 or len(pharm_files) != 1 or len(mask_files) != 1 or len(handoff_files) != 1:
+    raise RuntimeError(f'Input count mismatch: PDBs={len(pdb_files)}, pharm={len(pharm_files)}, masks={len(mask_files)}, handoffs={len(handoff_files)}')
+
+pharm = np.load(pharm_files[0], allow_pickle=False).astype(np.float32)
+pharm_mask = np.load(mask_files[0], allow_pickle=False).astype(bool)
+handoff = pd.read_csv(handoff_files[0])
+required_cols = {'candidate_id','canonical_smiles'}
+if not required_cols.issubset(handoff.columns):
+    raise KeyError(f'Handoff missing required columns: {required_cols - set(handoff.columns)}')
+if pharm.shape[:2] != pharm_mask.shape or pharm.shape[0] != 5 or pharm.shape[-1] < 3:
+    raise ValueError(f'Unexpected pharmacophore/mask shapes: {pharm.shape}, {pharm_mask.shape}')
+print('Protein conformers:', len(pdb_files))
+print('Member 2 candidates:', len(handoff))
+print('Pharmacophore tensor:', pharm.shape, 'mask:', pharm_mask.shape)
+display(handoff[['candidate_id','canonical_smiles']])
+
+=== CELL 10 ===
+RESIDUES = ['ALA','ARG','ASN','ASP','CYS','GLN','GLU','GLY','HIS','ILE','LEU','LYS','MET','PHE','PRO','SER','THR','TRP','TYR','VAL']
+RESIDUE_TO_ID = {r:i+1 for i,r in enumerate(RESIDUES)}
+RESIDUE_TO_ID['UNK'] = 0
+ELEMENT_TO_ATOMIC_NUMBER = {'C':6,'N':7,'O':8,'S':16,'P':15,'F':9,'CL':17,'BR':35,'I':53,'SE':34}
+
+def read_protein(pdb_path):
+    parser = PDBParser(QUIET=True)
+    structure = parser.get_structure('parp1', str(pdb_path))
+    coords, zs, rids, chains, residue_keys = [], [], [], [], []
+    for atom in structure.get_atoms():
+        residue = atom.get_parent()
+        resname = residue.get_resname().upper()
+        if residue.id[0] != ' ' or resname not in RESIDUE_TO_ID: continue
+        if atom.get_altloc() not in (' ', 'A'): continue
+        element = (atom.element or atom.get_name()[0]).strip().upper()
+        if element in ('H','D',''): continue
+        z = ELEMENT_TO_ATOMIC_NUMBER.get(element)
+        if z is None: continue
+        xyz = np.asarray(atom.coord, dtype=np.float32)
+        if not np.isfinite(xyz).all(): continue
+        coords.append(xyz); zs.append(z); rids.append(RESIDUE_TO_ID[resname])
+        chains.append(residue.get_parent().id)
+        residue_keys.append((residue.get_parent().id, residue.id[1], resname))
+    if not coords: raise ValueError(f'No protein heavy atoms parsed from {pdb_path}')
+    return {'coords':np.asarray(coords,dtype=np.float32), 'atomic_numbers':np.asarray(zs,dtype=np.int64),
+            'residue_ids':np.asarray(rids,dtype=np.int64), 'chains':np.asarray(chains), 'residue_keys':residue_keys}
+
+protein_data = []
+crop_rows = []
+for i, pdb_path in enumerate(pdb_files):
+    prot = read_protein(pdb_path)
+    active_xyz = pharm[i, pharm_mask[i], :3]
+    if len(active_xyz) == 0: raise ValueError(f'No active pharmacophore points for {pdb_path.name}')
+    distances = np.linalg.norm(prot['coords'][:,None,:] - active_xyz[None,:,:], axis=-1)
+    nearest = distances.min(axis=1)
+    row = {'conformer':pdb_path.name, 'raw_heavy_atoms':len(prot['coords']),
+           'raw_residues':len(set(prot['residue_keys'])),
+           'raw_chain_counts':json.dumps(pd.Series(prot['chains']).value_counts().to_dict()),
+           'active_pharmacophore_points':len(active_xyz)}
+    for radius in (8,10):
+        keep = nearest <= radius
+        row[f'atoms_{radius}A'] = int(keep.sum())
+        row[f'residues_{radius}A'] = int(len({key for key, flag in zip(prot['residue_keys'], keep) if flag}))
+        row[f'chains_{radius}A'] = json.dumps(pd.Series(prot['chains'][keep]).value_counts().to_dict())
+        row[f'features_within_{radius}A'] = int((distances.min(axis=0) <= radius).sum())
+    protein_data.append({'raw':prot, 'nearest_feature_distance':nearest, 'active_features':active_xyz})
+    crop_rows.append(row)
+
+crop_comparison = pd.DataFrame(crop_rows)
+display(crop_comparison)
+
+# Conservative default: 8 ┼ is closer to Stage A pocket sizes than 10 ┼.
+# Change to 10.0 only if your crop comparison justifies the larger pocket.
+POCKET_RADIUS_A = 8.0
+print('Selected crop radius:', POCKET_RADIUS_A, '┼')
+print('Reminder: pharmacophore coordinates are used for cropping only, not passed as model features.')
+
+=== CELL 11 ===
+class SmoothRBF(nn.Module):
+    def __init__(self, n_rbf=32, cutoff=12.0):
+        super().__init__()
+        self.register_buffer("centers", torch.linspace(0.0, cutoff, n_rbf))
+        self.gamma = (n_rbf / cutoff) ** 2
+        self.cutoff = float(cutoff)
+    def envelope(self, distances):
+        x = (distances / self.cutoff).clamp(0.0, 1.0)
+        env = 0.5 * (torch.cos(math.pi * x) + 1.0)
+        return env * (distances < self.cutoff).to(distances.dtype)
+    def forward(self, distances):
+        d = distances.unsqueeze(-1)
+        basis = torch.exp(-self.gamma * (d - self.centers) ** 2)
+        return basis * self.envelope(distances).unsqueeze(-1)
+
+class MLP(nn.Module):
+    def __init__(self, dims, dropout=0.0):
+        super().__init__()
+        layers = []
+        for i in range(len(dims)-1):
+            layers.append(nn.Linear(dims[i], dims[i+1]))
+            if i < len(dims)-2:
+                layers.append(nn.SiLU())
+                if dropout: layers.append(nn.Dropout(dropout))
+        self.net = nn.Sequential(*layers)
+    def forward(self, x): return self.net(x)
+
+class ProteinEncoder(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        self.element_emb = nn.Embedding(32, 32, padding_idx=0)
+        self.residue_emb = nn.Embedding(22, 24, padding_idx=0)
+        self.proj = MLP([56, hidden_dim, hidden_dim])
+    def forward(self, atomic_numbers, residue_ids, mask):
+        z = atomic_numbers.clamp(0, 31)
+        r = residue_ids.clamp(0, 21)
+        h = self.proj(torch.cat([self.element_emb(z), self.residue_emb(r)], dim=-1))
+        return h * mask.unsqueeze(-1)
+
+class ProteinEGNNLayer(nn.Module):
+    def __init__(self, hidden_dim, n_rbf=16, cutoff=10.0, k_neighbors=32):
+        super().__init__()
+        self.rbf = SmoothRBF(n_rbf=n_rbf, cutoff=cutoff)
+        self.k_neighbors = int(k_neighbors)
+        self.message = MLP([2*hidden_dim+n_rbf, hidden_dim, hidden_dim])
+        self.update = MLP([2*hidden_dim, hidden_dim, hidden_dim])
+        self.norm = nn.LayerNorm(hidden_dim)
+    def forward(self, h, xyz, mask):
+        B, P, H = h.shape
+        # Distances [B,P,P], then select at most K nearest valid neighbours per atom.
+        d = torch.cdist(xyz, xyz)
+        valid_pair = mask[:, :, None] & mask[:, None, :]
+        eye = torch.eye(P, device=xyz.device, dtype=torch.bool)[None]
+        valid_neigh = valid_pair & (~eye) & (d < self.rbf.cutoff)
+        d_for_topk = d.masked_fill(~valid_neigh, float("inf"))
+        K = min(self.k_neighbors, max(P-1, 1))
+        knn_d, knn_idx = torch.topk(d_for_topk, k=K, dim=-1, largest=False)
+        neigh_mask = torch.isfinite(knn_d)
+        safe_d = torch.where(neigh_mask, knn_d, torch.zeros_like(knn_d))
+        batch_idx = torch.arange(B, device=h.device)[:, None, None].expand(B, P, K)
+        h_neigh = h[batch_idx, knn_idx]
+        h_i = h[:, :, None, :].expand(-1, -1, K, -1)
+        rbf = self.rbf(safe_d)
+        msg = self.message(torch.cat([h_i, h_neigh, rbf], dim=-1))
+        msg = msg * neigh_mask.unsqueeze(-1)
+        agg = msg.sum(dim=2) / neigh_mask.sum(dim=2, keepdim=True).clamp(min=1)
+        h_new = self.norm(h + self.update(torch.cat([h, agg], dim=-1)))
+        return h_new * mask.unsqueeze(-1)
+
+class ProteinGeometricEncoder(nn.Module):
+    def __init__(self, hidden_dim, n_layers=2, k_neighbors=32, cutoff=10.0):
+        super().__init__()
+        self.layers = nn.ModuleList([
+            ProteinEGNNLayer(hidden_dim, k_neighbors=k_neighbors, cutoff=cutoff)
+            for _ in range(n_layers)
+        ])
+    def forward(self, h, xyz, mask):
+        for layer in self.layers: h = layer(h, xyz, mask)
+        return h
+
+=== CELL 12 ===
+class LigandEncoder(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        self.element_emb = nn.Embedding(32, 32, padding_idx=0)
+        self.charge_emb = nn.Embedding(17, 12)
+        self.aromatic_emb = nn.Embedding(2, 4)
+        self.hybrid_emb = nn.Embedding(8, 8)
+        self.chiral_emb = nn.Embedding(8, 8)
+        self.degree_emb = nn.Embedding(12, 8)
+        self.hcount_emb = nn.Embedding(10, 8)
+        in_dim = 32+12+4+8+8+8+8
+        self.proj = MLP([in_dim, hidden_dim, hidden_dim])
+    def forward(self, batch):
+        z = batch["ligand_atomic_numbers"].clamp(0,31)
+        charge = (batch["ligand_formal_charges"]+8).clamp(0,16)
+        aromatic = batch["ligand_is_aromatic"].clamp(0,1)
+        hybrid = batch["ligand_hybridization"].clamp(0,7)
+        chiral = batch["ligand_chiral_tags"].clamp(0,7)
+        degree = batch["ligand_total_degree"].clamp(0,11)
+        hcount = batch["ligand_total_h"].clamp(0,9)
+        feats = torch.cat([
+            self.element_emb(z), self.charge_emb(charge), self.aromatic_emb(aromatic),
+            self.hybrid_emb(hybrid), self.chiral_emb(chiral),
+            self.degree_emb(degree), self.hcount_emb(hcount)
+        ], dim=-1)
+        return self.proj(feats) * batch["ligand_mask"].unsqueeze(-1)
+
+class LigandBondLayer(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        # Keep legacy parameter names/shapes for partial checkpoint transfer.
+        self.bond_emb = nn.Embedding(6, 16)
+        self.bond_order_emb = nn.Embedding(6, 16)
+        self.bond_attr_emb = nn.Embedding(2, 16)
+        self.conjugated_emb = nn.Embedding(2, 16)
+        self.in_ring_emb = nn.Embedding(2, 16)
+        self.message = MLP([2*hidden_dim+16, hidden_dim, hidden_dim])
+        self.update = MLP([2*hidden_dim, hidden_dim, hidden_dim])
+        self.norm = nn.LayerNorm(hidden_dim)
+    def forward(self, h, batch):
+        B,L,H = h.shape
+        edge_index = batch["ligand_bond_index"]
+        src = edge_index[...,0].clamp(0,L-1)
+        dst = edge_index[...,1].clamp(0,L-1)
+        raw = batch["ligand_bond_type"]
+        # Explicit order categories: 1=single, 1.5=aromatic, 2=double, 3=triple, else=other.
+        btype = torch.full_like(raw, 5, dtype=torch.long)
+        btype = torch.where(torch.isclose(raw, torch.tensor(1.0,device=raw.device)), 1, btype)
+        btype = torch.where(torch.isclose(raw, torch.tensor(1.5,device=raw.device)), 2, btype)
+        btype = torch.where(torch.isclose(raw, torch.tensor(2.0,device=raw.device)), 3, btype)
+        btype = torch.where(torch.isclose(raw, torch.tensor(3.0,device=raw.device)), 4, btype)
+        # Legacy embedding retains a coarse order signal; new embeddings preserve distinctions.
+        legacy_idx = raw.round().long().clamp(0,5)
+        aromatic = batch["ligand_bond_aromatic"].clamp(0,1)
+        conjugated = batch["ligand_bond_conjugated"].clamp(0,1)
+        in_ring = batch["ligand_bond_in_ring"].clamp(0,1)
+        bond_h = (self.bond_emb(legacy_idx) + self.bond_order_emb(btype)
+                  + self.bond_attr_emb(aromatic) + self.conjugated_emb(conjugated)
+                  + self.in_ring_emb(in_ring))
+        batch_ids = torch.arange(B,device=h.device)[:,None].expand_as(src)
+        hs, hd = h[batch_ids,src], h[batch_ids,dst]
+        msg = self.message(torch.cat([hs,hd,bond_h],dim=-1))
+        edge_mask = batch["ligand_bond_mask"]
+        msg = msg * edge_mask.unsqueeze(-1)
+        agg = torch.zeros_like(h)
+        # AMP may produce messages in float16 while h/agg remain float32.
+        # scatter_add_ requires source and destination tensors to share a dtype.
+        msg = msg.to(dtype=agg.dtype)
+        agg.scatter_add_(1,src.unsqueeze(-1).expand(-1,-1,H),msg)
+        agg.scatter_add_(1,dst.unsqueeze(-1).expand(-1,-1,H),msg)
+        out = self.norm(h + self.update(torch.cat([h,agg],dim=-1)))
+        return out * batch["ligand_mask"].unsqueeze(-1)
+
+class LigandGraphEncoder(nn.Module):
+    def __init__(self, hidden_dim, n_layers=3):
+        super().__init__()
+        self.atom_encoder = LigandEncoder(hidden_dim)
+        self.layers = nn.ModuleList([LigandBondLayer(hidden_dim) for _ in range(n_layers)])
+    def forward(self,batch):
+        h = self.atom_encoder(batch)
+        for layer in self.layers: h = layer(h,batch)
+        return h
+
+=== CELL 13 ===
+class CrossPocketLayer(nn.Module):
+    def __init__(self, hidden_dim, n_rbf=32, cutoff=12.0):
+        super().__init__()
+        self.rbf = SmoothRBF(n_rbf, cutoff)
+        self.message = MLP([2*hidden_dim+n_rbf, hidden_dim, hidden_dim])
+        self.update = MLP([2*hidden_dim, hidden_dim, hidden_dim])
+        self.norm = nn.LayerNorm(hidden_dim)
+    def forward(self, ligand_h, protein_h, ligand_xyz, protein_xyz, ligand_mask, protein_mask):
+        rel = ligand_xyz[:,:,None,:] - protein_xyz[:,None,:,:]
+        dist = torch.linalg.norm(rel,dim=-1)
+        rbf = self.rbf(dist)
+        B,L,P = dist.shape
+        ph = protein_h[:,None,:,:].expand(-1,L,-1,-1)
+        lh = ligand_h[:,:,None,:].expand(-1,-1,P,-1)
+        pair = self.message(torch.cat([lh,ph,rbf],dim=-1))
+        pair_mask = ligand_mask[:,:,None] & protein_mask[:,None,:] & (dist < self.rbf.cutoff)
+        pair = pair * pair_mask.unsqueeze(-1)
+        agg = pair.sum(dim=2) / pair_mask.sum(dim=2,keepdim=True).clamp(min=1)
+        out = self.norm(ligand_h + self.update(torch.cat([ligand_h,agg],dim=-1)))
+        return out * ligand_mask.unsqueeze(-1)
+
+class ConditionEncoder(nn.Module):
+    def __init__(self, hidden_dim):
+        super().__init__()
+        self.prop_net = MLP([12,hidden_dim,hidden_dim])
+        self.time_net = MLP([4,hidden_dim,hidden_dim])
+    def forward(self, properties, t):
+        t = t.reshape(-1,1)
+        tf = torch.cat([t,t*t,torch.sin(math.pi*t),torch.cos(math.pi*t)],dim=-1)
+        return self.prop_net(properties) + self.time_net(tf)
+
+class EquivariantVelocityHead(nn.Module):
+    def __init__(self, hidden_dim, n_rbf=32, cutoff=12.0):
+        super().__init__()
+        self.rbf = SmoothRBF(n_rbf,cutoff)
+        self.cross_coeff = MLP([2*hidden_dim+n_rbf,hidden_dim,1])
+        self.self_coeff = MLP([2*hidden_dim+n_rbf,hidden_dim,1])
+    def forward(self, ligand_h, protein_h, ligand_xyz, protein_xyz, ligand_mask, protein_mask):
+        B,L,_ = ligand_xyz.shape; P = protein_xyz.shape[1]
+        rel_lp = ligand_xyz[:,:,None,:] - protein_xyz[:,None,:,:]
+        dist_lp = torch.linalg.norm(rel_lp,dim=-1)
+        rbf_lp = self.rbf(dist_lp)
+        lh = ligand_h[:,:,None,:].expand(-1,-1,P,-1)
+        ph = protein_h[:,None,:,:].expand(-1,L,-1,-1)
+        raw_lp = self.cross_coeff(torch.cat([lh,ph,rbf_lp],dim=-1)).squeeze(-1)
+        mask_lp = ligand_mask[:,:,None] & protein_mask[:,None,:] & (dist_lp < self.rbf.cutoff)
+        coeff_lp = raw_lp * self.rbf.envelope(dist_lp) * mask_lp
+        vec_lp = (coeff_lp.unsqueeze(-1)*rel_lp/(dist_lp.unsqueeze(-1)+1e-6)).sum(dim=2)
+
+        rel_ll = ligand_xyz[:,:,None,:] - ligand_xyz[:,None,:,:]
+        dist_ll = torch.linalg.norm(rel_ll,dim=-1)
+        rbf_ll = self.rbf(dist_ll)
+        hi = ligand_h[:,:,None,:].expand(-1,-1,L,-1)
+        hj = ligand_h[:,None,:,:].expand(-1,L,-1,-1)
+        raw_ll = self.self_coeff(torch.cat([hi,hj,rbf_ll],dim=-1)).squeeze(-1)
+        eye = torch.eye(L,device=ligand_xyz.device,dtype=torch.bool)[None]
+        mask_ll = ligand_mask[:,:,None] & ligand_mask[:,None,:] & (~eye) & (dist_ll < self.rbf.cutoff)
+        coeff_ll = raw_ll * self.rbf.envelope(dist_ll) * mask_ll
+        vec_ll = (coeff_ll.unsqueeze(-1)*rel_ll/(dist_ll.unsqueeze(-1)+1e-6)).sum(dim=2)
+        return (vec_lp+vec_ll) * ligand_mask.unsqueeze(-1)
+
+class GeneralProteinLigandFlowNet(nn.Module):
+    def __init__(self, hidden_dim=128, protein_layers=2, ligand_layers=3,
+                 cross_layers=2, protein_k_neighbors=32, protein_cutoff=10.0):
+        super().__init__()
+        self.protein_encoder = ProteinEncoder(hidden_dim)
+        self.protein_geometric_encoder = ProteinGeometricEncoder(
+            hidden_dim, n_layers=protein_layers,
+            k_neighbors=protein_k_neighbors, cutoff=protein_cutoff
+        )
+        self.ligand_encoder = LigandGraphEncoder(hidden_dim, ligand_layers)
+        self.cross_layers = nn.ModuleList([CrossPocketLayer(hidden_dim) for _ in range(cross_layers)])
+        self.condition_encoder = ConditionEncoder(hidden_dim)
+        self.condition_fuse = MLP([2*hidden_dim,hidden_dim,hidden_dim])
+        self.velocity_head = EquivariantVelocityHead(hidden_dim)
+    def forward(self,batch,x_t,t):
+        pm,lm = batch["protein_mask"],batch["ligand_mask"]
+        pxyz,lxyz = batch["protein_coords"],x_t
+        ph = self.protein_encoder(batch["protein_atomic_numbers"],batch["protein_residue_ids"],pm)
+        ph = self.protein_geometric_encoder(ph,pxyz,pm)
+        lh = self.ligand_encoder(batch)
+        cond = self.condition_encoder(batch["properties_norm"],t)
+        cond_l = cond[:,None,:].expand(-1,lh.shape[1],-1)
+        lh = self.condition_fuse(torch.cat([lh,cond_l],dim=-1))*lm.unsqueeze(-1)
+        for layer in self.cross_layers: lh = layer(lh,ph,lxyz,pxyz,lm,pm)
+        return self.velocity_head(lh,ph,lxyz,pxyz,lm,pm)
+
+=== CELL 14 ===
+HIDDEN_DIM = 128
+PROTEIN_LAYERS = 2
+LIGAND_LAYERS = 3
+CROSS_LAYERS = 2
+PROTEIN_K_NEIGHBORS = 32
+
+model = GeneralProteinLigandFlowNet(
+    hidden_dim=HIDDEN_DIM, protein_layers=PROTEIN_LAYERS,
+    ligand_layers=LIGAND_LAYERS, cross_layers=CROSS_LAYERS,
+    protein_k_neighbors=PROTEIN_K_NEIGHBORS
+).to(DEVICE)
+checkpoint = torch.load(CHECKPOINT_PATH, map_location='cpu', weights_only=False)
+model.load_state_dict(checkpoint['model_state_dict'], strict=True)
+model.eval()
+print('Strict checkpoint load: PASSED')
+print('Best epoch:', checkpoint.get('epoch'))
+print('Best validation CFM loss:', checkpoint.get('best_validation_cfm_loss'))
+print('State tensors:', len(checkpoint['model_state_dict']))
+
+with open(PRIOR_PATH) as f: prior = json.load(f)
+if prior.get('fit_split') != 'train_only':
+    raise ValueError('Initial prior must be calibrated on Stage A training split only.')
+OFFSET_MEAN = np.asarray(prior['centroid_offset_mean'], dtype=np.float32)
+OFFSET_COV = np.asarray(prior['centroid_offset_covariance'], dtype=np.float32)
+ATOM_NOISE_STD = float(prior['atom_noise_std_angstrom'])
+if OFFSET_MEAN.shape != (3,) or OFFSET_COV.shape != (3,3) or ATOM_NOISE_STD <= 0:
+    raise ValueError('Invalid Stage E initial prior dimensions/scale.')
+OFFSET_COV = OFFSET_COV + np.eye(3,dtype=np.float32)*1e-5
+np.linalg.cholesky(OFFSET_COV)
+print('Prior training complexes:', prior.get('training_complex_count'))
+print('Atom noise std (┼):', ATOM_NOISE_STD)
+
+=== CELL 15 ===
+HYBRIDIZATION_TO_ID = {
+    Chem.rdchem.HybridizationType.SP:1, Chem.rdchem.HybridizationType.SP2:2,
+    Chem.rdchem.HybridizationType.SP3:3, Chem.rdchem.HybridizationType.SP3D:4,
+    Chem.rdchem.HybridizationType.SP3D2:5
+}
+PROPERTY_COLUMNS = ['QED','LogP','Molecular_Weight','SA_Score','HBD','HBA','TPSA',
+                    'Rotatable_Bonds','Aromatic_Ring_Count','Heavy_Atom_Count','Fraction_CSP3','Formal_Charge']
+
+def molecule_features(smiles):
+    mol = Chem.MolFromSmiles(str(smiles))
+    if mol is None: raise ValueError(f'RDKit could not parse SMILES: {smiles}')
+    Chem.AssignStereochemistry(mol, cleanIt=True, force=True)
+    atom = {k:[] for k in ['ligand_atomic_numbers','ligand_formal_charges','ligand_is_aromatic',
+                           'ligand_hybridization','ligand_chiral_tags','ligand_total_degree','ligand_total_h']}
+    for a in mol.GetAtoms():
+        atom['ligand_atomic_numbers'].append(a.GetAtomicNum())
+        atom['ligand_formal_charges'].append(a.GetFormalCharge())
+        atom['ligand_is_aromatic'].append(int(a.GetIsAromatic()))
+        atom['ligand_hybridization'].append(HYBRIDIZATION_TO_ID.get(a.GetHybridization(),0))
+        atom['ligand_chiral_tags'].append(int(a.GetChiralTag()))
+        atom['ligand_total_degree'].append(a.GetTotalDegree())
+        atom['ligand_total_h'].append(a.GetTotalNumHs())
+    bonds = list(mol.GetBonds())
+    atom.update({
+        'ligand_bond_index':np.asarray([[b.GetBeginAtomIdx(),b.GetEndAtomIdx()] for b in bonds],dtype=np.int64).reshape(-1,2),
+        'ligand_bond_type':np.asarray([float(b.GetBondTypeAsDouble()) for b in bonds],dtype=np.float32),
+        'ligand_bond_aromatic':np.asarray([int(b.GetIsAromatic()) for b in bonds],dtype=np.int64),
+        'ligand_bond_conjugated':np.asarray([int(b.GetIsConjugated()) for b in bonds],dtype=np.int64),
+        'ligand_bond_in_ring':np.asarray([int(b.IsInRing()) for b in bonds],dtype=np.int64)
+    })
+    props = np.asarray([QED.qed(mol),Crippen.MolLogP(mol),Descriptors.MolWt(mol),
+        sascorer.calculateScore(mol),Lipinski.NumHDonors(mol),Lipinski.NumHAcceptors(mol),
+        rdMolDescriptors.CalcTPSA(mol),Lipinski.NumRotatableBonds(mol),
+        rdMolDescriptors.CalcNumAromaticRings(mol),mol.GetNumHeavyAtoms(),
+        rdMolDescriptors.CalcFractionCSP3(mol),Chem.GetFormalCharge(mol)],dtype=np.float32)
+    if not np.isfinite(props).all(): raise ValueError('Non-finite molecular descriptors')
+    return mol, atom, props
+
+with open(STATS_PATH) as f: stats = json.load(f)
+if stats.get('fit_split') != 'train_only': raise ValueError('Property stats are not train-only.')
+means = np.asarray(stats['mean'],dtype=np.float32); stds = np.asarray(stats['std'],dtype=np.float32)
+eps = float(stats.get('epsilon',1e-8))
+if means.shape != (12,) or stds.shape != (12,): raise ValueError('Expected 12 property means/stds.')
+
+ligand_graphs = {}
+ligand_rows = []
+for row in handoff.itertuples(index=False):
+    cid = str(row.candidate_id)
+    mol, features, props = molecule_features(row.canonical_smiles)
+    props_norm = (props-means)/(stds+eps)
+    ligand_graphs[cid] = {'mol':mol,'features':features,'properties_raw':props,'properties_norm':props_norm,
+                          'smiles':str(row.canonical_smiles)}
+    ligand_rows.append({'candidate_id':cid,'atoms':mol.GetNumAtoms(),'bonds':mol.GetNumBonds(),
+                        'max_abs_property_z':float(np.max(np.abs(props_norm))),
+                        **{k:float(v) for k,v in zip(PROPERTY_COLUMNS,props)}})
+ligand_audit = pd.DataFrame(ligand_rows)
+display(ligand_audit)
+if not ligand_graphs: raise RuntimeError('No ligand graphs available for inference.')
+
+=== CELL 16 ===
+def make_inference_batch(protein, ligand_data, crop_radius):
+    keep = protein['nearest_feature_distance'] <= crop_radius
+    if not keep.any(): raise ValueError('Selected crop contains no protein atoms.')
+    pxyz_raw = protein['raw']['coords'][keep]
+    pz = protein['raw']['atomic_numbers'][keep]
+    prid = protein['raw']['residue_ids'][keep]
+    # Match Stage A coordinate convention: center protein and ligand in the same frame.
+    center = pxyz_raw.mean(axis=0).astype(np.float32)
+    pxyz = pxyz_raw - center[None,:]
+
+    feat = ligand_data['features']
+    n_lig = len(feat['ligand_atomic_numbers'])
+    n_bonds = len(feat['ligand_bond_index'])
+    max_edges = max(1,n_bonds)
+
+    batch = {
+        'protein_coords':torch.tensor(pxyz,dtype=torch.float32).unsqueeze(0),
+        'protein_mask':torch.ones((1,len(pxyz)),dtype=torch.bool),
+        'protein_atomic_numbers':torch.tensor(pz,dtype=torch.long).unsqueeze(0),
+        'protein_residue_ids':torch.tensor(prid,dtype=torch.long).unsqueeze(0),
+        # Placeholder only: initial coordinates are sampled from the training prior.
+        'ligand_coords':torch.zeros((1,n_lig,3),dtype=torch.float32),
+        'ligand_mask':torch.ones((1,n_lig),dtype=torch.bool),
+        'properties_norm':torch.tensor(ligand_data['properties_norm'],dtype=torch.float32).unsqueeze(0),
+    }
+    for key in ['ligand_atomic_numbers','ligand_formal_charges','ligand_is_aromatic',
+                'ligand_hybridization','ligand_chiral_tags','ligand_total_degree','ligand_total_h']:
+        batch[key] = torch.tensor(feat[key],dtype=torch.long).unsqueeze(0)
+
+    batch['ligand_bond_index'] = torch.zeros((1,max_edges,2),dtype=torch.long)
+    batch['ligand_bond_type'] = torch.zeros((1,max_edges),dtype=torch.float32)
+    batch['ligand_bond_mask'] = torch.zeros((1,max_edges),dtype=torch.bool)
+    for key in ['ligand_bond_aromatic','ligand_bond_conjugated','ligand_bond_in_ring']:
+        batch[key] = torch.zeros((1,max_edges),dtype=torch.long)
+    if n_bonds:
+        batch['ligand_bond_index'][0,:n_bonds] = torch.tensor(feat['ligand_bond_index'],dtype=torch.long)
+        batch['ligand_bond_type'][0,:n_bonds] = torch.tensor(feat['ligand_bond_type'],dtype=torch.float32)
+        batch['ligand_bond_mask'][0,:n_bonds] = True
+        for key in ['ligand_bond_aromatic','ligand_bond_conjugated','ligand_bond_in_ring']:
+            batch[key][0,:n_bonds] = torch.tensor(feat[key],dtype=torch.long)
+    return {k:v.to(DEVICE) for k,v in batch.items()}, center, int(keep.sum()), int(len({key for key, flag in zip(protein['raw']['residue_keys'], keep) if flag}))
+
+def sample_initial_state(batch, generator=None):
+    B,L,_ = batch['ligand_coords'].shape
+    dev, dtype = batch['ligand_coords'].device, batch['ligand_coords'].dtype
+    mean = torch.as_tensor(OFFSET_MEAN,device=dev,dtype=dtype)
+    cov = torch.as_tensor(OFFSET_COV,device=dev,dtype=dtype)
+    chol = torch.linalg.cholesky(cov)
+    centroid_noise = torch.randn((B,3),device=dev,dtype=dtype,generator=generator)
+    centroid = centroid_noise @ chol.T + mean
+    atom_noise = torch.randn((B,L,3),device=dev,dtype=dtype,generator=generator)*ATOM_NOISE_STD
+    return (centroid[:,None,:]+atom_noise)*batch['ligand_mask'].unsqueeze(-1)
+
+@torch.no_grad()
+def integrate_flow(model,batch,n_steps=100,seed=2026):
+    model.eval()
+    generator = torch.Generator(device=DEVICE)
+    generator.manual_seed(int(seed))
+    x = sample_initial_state(batch,generator=generator)
+    ligand_mask = batch['ligand_mask'].unsqueeze(-1)
+    dt = 1.0/float(n_steps)
+    for step in range(n_steps):
+        t = torch.full((x.shape[0],),step/float(n_steps),device=x.device,dtype=x.dtype)
+        velocity = model(batch,x,t)
+        if not torch.isfinite(velocity).all(): raise FloatingPointError(f'Non-finite velocity at step {step}')
+        x = (x+dt*velocity)*ligand_mask
+        if not torch.isfinite(x).all(): raise FloatingPointError(f'Non-finite coordinates at step {step}')
+    return x
+
+# Smoke test on first conformer / first candidate before full batch.
+first_cid = next(iter(ligand_graphs))
+smoke_batch, smoke_center, smoke_n_atoms, smoke_n_res = make_inference_batch(protein_data[0],ligand_graphs[first_cid],POCKET_RADIUS_A)
+smoke_xyz = integrate_flow(model,smoke_batch,n_steps=10,seed=SEED)
+assert smoke_xyz.shape == (1,len(ligand_graphs[first_cid]['features']['ligand_atomic_numbers']),3)
+assert torch.isfinite(smoke_xyz).all()
+print('10-step inference smoke test: PASSED')
+print('Smoke pocket atoms/residues:',smoke_n_atoms,smoke_n_res)
+print('Smoke coordinate shape:',tuple(smoke_xyz.shape))
+
+=== CELL 17 ===
+N_STEPS = 100
+GENERATIONS_PER_PAIR = 1
+
+results = []
+all_coordinate_records = []
+for conf_idx, pdb_path in enumerate(pdb_files):
+    protein = protein_data[conf_idx]
+    for cid, ligand_data in ligand_graphs.items():
+        for sample_idx in range(GENERATIONS_PER_PAIR):
+            batch, pocket_center, n_pocket_atoms, n_pocket_residues = make_inference_batch(
+                protein, ligand_data, POCKET_RADIUS_A
+            )
+            run_seed = SEED + conf_idx*10000 + list(ligand_graphs).index(cid)*100 + sample_idx
+            x_gen = integrate_flow(model,batch,n_steps=N_STEPS,seed=run_seed)[0].detach().cpu().numpy().astype(np.float32)
+            if not np.isfinite(x_gen).all(): raise FloatingPointError(f'Non-finite output: {cid}, {pdb_path.name}')
+
+            # Restore the original PDB coordinate frame for writing alongside the protein.
+            x_world = x_gen + pocket_center[None,:]
+            record_id = f'{cid}__{pdb_path.stem}__sample{sample_idx+1}'
+            npz_path = OUTPUT_DIR / f'{record_id}.npz'
+            np.savez_compressed(npz_path, ligand_coords_centered=x_gen, ligand_coords_pdb_frame=x_world,
+                                pocket_center=pocket_center, candidate_id=cid, conformer=pdb_path.name,
+                                pocket_radius_A=POCKET_RADIUS_A, ode_steps=N_STEPS, seed=run_seed)
+
+            # Write a coordinate-bearing SDF. Atom order is the RDKit SMILES parse order used by the model.
+            mol_out = Chem.Mol(ligand_data['mol'])
+            conf = Chem.Conformer(mol_out.GetNumAtoms())
+            for atom_idx, xyz in enumerate(x_world):
+                conf.SetAtomPosition(atom_idx, tuple(float(v) for v in xyz))
+            mol_out.RemoveAllConformers()
+            mol_out.AddConformer(conf, assignId=True)
+            mol_out.SetProp('_Name',record_id)
+            mol_out.SetProp('candidate_id',cid)
+            mol_out.SetProp('protein_conformer',pdb_path.name)
+            mol_out.SetProp('pocket_crop_radius_A',str(POCKET_RADIUS_A))
+            mol_out.SetProp('coordinate_status','exploratory_unvalidated')
+            sdf_path = OUTPUT_DIR / f'{record_id}.sdf'
+            writer = Chem.SDWriter(str(sdf_path)); writer.write(mol_out); writer.close()
+
+            # Basic geometry diagnostics only; these are not a validation pass.
+            bond_lengths = []
+            for bond in ligand_data['mol'].GetBonds():
+                a,b = bond.GetBeginAtomIdx(),bond.GetEndAtomIdx()
+                bond_lengths.append(float(np.linalg.norm(x_gen[a]-x_gen[b])))
+            results.append({
+                'record_id':record_id,'candidate_id':cid,'conformer':pdb_path.name,
+                'pocket_radius_A':POCKET_RADIUS_A,'pocket_atoms':n_pocket_atoms,
+                'pocket_residues':n_pocket_residues,'ligand_atoms':len(x_gen),
+                'ode_steps':N_STEPS,'seed':run_seed,
+                'all_coordinates_finite':bool(np.isfinite(x_gen).all()),
+                'bond_length_mean_A':float(np.mean(bond_lengths)) if bond_lengths else np.nan,
+                'bond_length_min_A':float(np.min(bond_lengths)) if bond_lengths else np.nan,
+                'bond_length_max_A':float(np.max(bond_lengths)) if bond_lengths else np.nan,
+                'npz_file':npz_path.name,'sdf_file':sdf_path.name,
+                'status':'exploratory_unvalidated'
+            })
+            all_coordinate_records.append({'record_id':record_id,'coords':x_gen})
+
+results_df = pd.DataFrame(results)
+display(results_df)
+print('Generated coordinate sets:',len(results_df))
+print('Output directory:',OUTPUT_DIR)
+
+=== CELL 18 ===
+results_csv = OUTPUT_DIR / 'stage_f_generation_manifest.csv'
+results_json = OUTPUT_DIR / 'stage_f_generation_report.json'
+results_df.to_csv(results_csv,index=False)
+report = {
+    'stage':'F_step2_exploratory_coordinate_generation',
+    'checkpoint_epoch':int(checkpoint.get('epoch',-1)),
+    'best_validation_cfm_loss':float(checkpoint.get('best_validation_cfm_loss',float('nan'))),
+    'checkpoint_loaded_strictly':True,
+    'prior_fit_split':prior.get('fit_split'),
+    'prior_training_complex_count':prior.get('training_complex_count'),
+    'pocket_crop_rule':'protein heavy atoms within selected radius of any active Member 1 pharmacophore point',
+    'pharmacophore_used_as_model_feature':False,
+    'pocket_radius_A':float(POCKET_RADIUS_A),
+    'protein_conformers':len(pdb_files),
+    'ligand_candidates':len(ligand_graphs),
+    'generated_coordinate_sets':int(len(results_df)),
+    'ode_steps':int(N_STEPS),
+    'outputs':'SDF and NPZ per candidate/conformer/sample',
+    'scientific_status':'exploratory_unvalidated',
+    'limitations':[
+        'The model predicts coordinates for supplied ligand topology; it does not generate connectivity.',
+        'The pharmacophore tensor is used only for protein cropping and is not an input feature to the trained model.',
+        'The Stage D model was trained on CrossDocked2020-derived complexes and may be out-of-domain for PARP1 candidates.',
+        'Earlier Stage E geometry evaluation showed poor bond geometry; generated coordinates are not validated binding poses.',
+        'No force-field minimization, docking refinement, or biological activity validation is performed.'
+    ]
+}
+with open(results_json,'w') as f: json.dump(report,f,indent=2)
+print('Saved manifest:',results_csv)
+print('Saved report:',results_json)
+print(json.dumps({k:report[k] for k in ['checkpoint_epoch','pocket_radius_A','protein_conformers','ligand_candidates','generated_coordinate_sets','scientific_status']},indent=2))
+
+# Optional download archive containing all per-sample SDF/NPZ plus manifest.
+import shutil
+archive_base = str(OUTPUT_DIR / 'stage_f_generated_coordinates')
+archive_path = shutil.make_archive(archive_base,'zip',root_dir=OUTPUT_DIR)
+print('Created archive:',archive_path)
+
